@@ -31,7 +31,6 @@ def train_model():
     print("🧠 Kuriame CNN modelį...")
 
     model = Sequential([
-        # CNN sluoksniai
         Conv2D(32, (3, 3), activation="relu", input_shape=(32, 32, 3)),
         MaxPooling2D(),
         Conv2D(64, (3, 3), activation="relu"),
@@ -46,13 +45,18 @@ def train_model():
 
     # 4️⃣ Mokymas
     print("🚀 Pradedame mokymą...")
-    history = model.fit(X_train, y_train, epochs=5, validation_data=(X_test, y_test))
+    history = model.fit(X_train, y_train, epochs=15, batch_size=64, validation_data=(X_test, y_test))
+
+    # 🧠 ĮVERTINIMAS PO MOKYMO
+    test_loss, test_acc = model.evaluate(X_test, y_test, verbose=2)
+    print(f"\n🎯 Galutinis modelio tikslumas testavimo duomenyse: {test_acc * 100:.2f}%")
+    print(f"📉 Galutinis testavimo nuostolis (loss): {test_loss:.4f}")
 
     # 5️⃣ Išsaugome modelį
     print("✅ Mokymas baigtas!")
     model.save("traffic_sign_cnn.h5")
     model.save("traffic_sign_cnn.keras")
-    print("💾 Modelis išsaugotas: traffic_sign_cnn.h5 ir traffic_sign_cnn.keras")
+    print("💾 Modelis sėkmingai išsaugotas!")
 
     # 6️⃣ Nubraižome tikslumo grafiką
     plt.figure(figsize=(8, 5))
