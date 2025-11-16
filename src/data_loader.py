@@ -1,85 +1,112 @@
-
 # src/data_loader.py
 import os
-import cv2
 import numpy as np
+from PIL import Image
 from sqlalchemy.orm import Session
 from sklearn.model_selection import train_test_split
-from tensorflow.keras.preprocessing.image import ImageDataGenerator
 
 from database import SessionLocal
-from models import Image
-from preprocess import preprocess_image
+from models import GTSRBRecord
 
 
-def load_training_data(limit=None, target_size=(64, 64)):
-    """
-    Nuskaito treniravimo duomenis iš duomenų bazės (GTSRB dataset),
-    apdoroja per preprocess_image() ir padalina į train/test rinkinius.
-    """
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
+TRAIN_ROOT = os.path.join(
+    BASE_DIR,
+    "data",
+    "GTSRB_Final_Training_Images",
+    "GTSRB",
+    "Final_Training",
+    "Images",
+)
+
+TEST_ROOT = os.path.join(
+    BASE_DIR,
+    "data",
+    "GTSRB_Final_Test_Images",
+    "GTSRB",
+    "Final_Test",
+    "Images",
+)
+
+
+def _load_split_from_db(split: str, limit: int | None, image_size=(32, 32),
+                        flatten: bool = False):
     db: Session = SessionLocal()
-    print("📦 Krauname treniravimo duomenis iš DB...")
+    query = db.query(GTSRBRecord).filter(GTSRBRecord.split == split)
 
-    images = db.query(Image).filter_by(split="train").all()
-    total = len(images)
-    print(f"✅ Rasta įrašų duomenų bazėje: {total}")
+    if limit is not None:
+        query = query.limit(limit)
 
-    X, y = [], []
+    rows = query.all()
+    db.close()
 
-    for i, img in enumerate(images if limit is None else images[:limit]):
-        if not os.path.exists(img.path):
-            print(f"⚠️ Nerastas failas: {img.path}")
+    X = []
+    y = []
+
+    for row in rows:
+        if split == "train":
+            img_dir = os.path.join(TRAIN_ROOT, f"{row.class_id:05d}")
+        else:
+            img_dir = TEST_ROOT
+
+        img_path = os.path.join(img_dir, row.filename)
+
+        if not os.path.exists(img_path):
+            # jeigu failo nėra – praleidžiam
             continue
 
         try:
-            img_data = preprocess_image(img.path, target_size=target_size)
-            X.append(img_data)
-            y.append(img.class_id)
-        except Exception as e:
-            print(f"❌ Klaida nuskaitant {img.path}: {e}")
+            img = Image.open(img_path).convert("RGB")
+        except Exception:
+            continue
 
-    X = np.array(X, dtype=np.float32)
+        # Iškerpam ROI
+        img = img.crop((row.roi_x1, row.roi_y1, row.roi_x2, row.roi_y2))
+        img = img.resize(image_size)
+
+        arr = np.array(img, dtype=np.float32) / 255.0
+
+        if flatten:
+            arr = arr.reshape(-1)
+
+        X.append(arr)
+        y.append(row.class_id)
+
+    X = np.array(X)
     y = np.array(y, dtype=np.int64)
-    db.close()
 
-    print(f"✅ Vaizdai apdoroti: {X.shape}, Žymės: {y.shape}")
+    return X, y
 
+
+def load_data_for_ml(limit: int | None = 5000):
+    """
+    ML modeliui (RandomForest): grąžina X_flat (N, D), y.
+
+    - ima tik train split
+    - flatten = True
+    """
+    X, y = _load_split_from_db("train", limit=limit, image_size=(32, 32), flatten=True)
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=0.2, random_state=42, stratify=y
     )
-
-    print(f"📊 Padalinta: X_train={X_train.shape}, X_test={X_test.shape}")
     return X_train, X_test, y_train, y_test
 
 
-def get_data_generators(X_train, y_train, X_val, y_val, batch_size=64):
+def load_data_for_cnn(limit: int | None = 8000):
     """
-    Grąžina duomenų generatorius su augmentacija.
-    Augmentacija padidina modelio atsparumą realioms Google nuotraukoms.
+    CNN modeliui:
+    - grąžina X_train, X_val, y_train, y_val
     """
+    X, y = _load_split_from_db("train", limit=limit, image_size=(32, 32), flatten=False)
 
-    train_gen = ImageDataGenerator(
-        rotation_range=15,
-        width_shift_range=0.1,
-        height_shift_range=0.1,
-        shear_range=0.1,
-        zoom_range=0.2,
-        brightness_range=[0.6, 1.4],
-        rescale=1./255,
-        fill_mode='nearest'
+    X_train, X_val, y_train, y_val = train_test_split(
+        X, y, test_size=0.2, random_state=42, stratify=y
     )
 
-    val_gen = ImageDataGenerator(rescale=1./255)
+    # į one-hot
+    num_classes = len(np.unique(y))
+    y_train_oh = np.eye(num_classes)[y_train]
+    y_val_oh = np.eye(num_classes)[y_val]
 
-    train_flow = train_gen.flow(X_train, y_train, batch_size=batch_size, shuffle=True)
-    val_flow = val_gen.flow(X_val, y_val, batch_size=batch_size, shuffle=False)
-
-    print("✅ Sukurti duomenų generatoriai su augmentacija.")
-    return train_flow, val_flow
-
-
-if __name__ == "__main__":
-    # Greitas testas – pamatyti ar viskas veikia
-    X_train, X_test, y_train, y_test = load_training_data(limit=100)
-    print("✅ Testinis duomenų įkėlimas pavyko.")
+    return X_train, X_val, y_train_oh, y_val_oh, num_classes

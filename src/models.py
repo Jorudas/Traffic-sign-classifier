@@ -1,39 +1,58 @@
-# models.py
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
-from sqlalchemy.orm import relationship
-from datetime import datetime
 
+# src/models.py
+from sqlalchemy import Column, Integer, String, Float, DateTime
+from sqlalchemy.sql import func
 from database import Base
 
 
-# Lentelė kelių ženklų klasėms
-class TrafficSignClass(Base):
-    __tablename__ = "classes"
+class GTSRBRecord(Base):
+    """
+    Anotacijų lentelė (train + test).
+    Užpildoma per ingest_gtsrb_csv.py
+    """
+    __tablename__ = "gtsrb_records"
 
     id = Column(Integer, primary_key=True, index=True)
-    name = Column(String, nullable=True)
+    filename = Column(String, nullable=False)   # pvz. "00000_00000.ppm"
+    width = Column(Integer, nullable=False)
+    height = Column(Integer, nullable=False)
+    roi_x1 = Column(Integer, nullable=False)
+    roi_y1 = Column(Integer, nullable=False)
+    roi_x2 = Column(Integer, nullable=False)
+    roi_y2 = Column(Integer, nullable=False)
+    class_id = Column(Integer, nullable=False)  # 0–42
+    split = Column(String, nullable=False)      # "train" arba "test"
 
-    # Ryšys su Image lentele (viena klasė -> daug nuotraukų)
-    images = relationship("Image", back_populates="class_ref")
 
-
-# Lentelė su nuotraukų informacija
-class Image(Base):
-    __tablename__ = "images"
+class ModelResult(Base):
+    """
+    Modelio spėjimų rezultatai (egzamino reikalavimas: saugoti į DB).
+    Pildoma iš Streamlit aplikacijos arba treniravimų metu.
+    """
+    __tablename__ = "prediction_results"  # paliekam tą pačią lentelę DB
 
     id = Column(Integer, primary_key=True, index=True)
 
-    # Kur yra failas (kelias iki nuotraukos)
-    path = Column(String, nullable=False)
+    # iš kur atkeliavo nuotrauka: failo kelias arba "upload" arba URL
+    image_source = Column(String, nullable=False)
 
-    # Train / Test / UserTrain / UserTest
-    split = Column(String, nullable=False)
+    # kokį modelį naudojome: "cnn", "mobilenet", "rf", "knn" ir t.t.
+    model_type = Column(String, nullable=False)
 
-    # Priskirta klasė (gali būti NULL, jei naudotojo įkelta test nuotrauka)
-    class_id = Column(Integer, ForeignKey("classes.id"), nullable=True)
+    # jei žinome teisingą label (pvz. test rinkinyje)
+    true_class = Column(Integer, nullable=True)
 
-    # Kada įrašyta
-    created_at = Column(DateTime, default=datetime.utcnow)
+    # modelio pateiktas spėjimas
+    predicted_class = Column(Integer, nullable=False)
 
-    # Ryšys: ši nuotrauka turi klasę
-    class_ref = relationship("TrafficSignClass", back_populates="images")
+    # modelio tikimybė (MobileNet ir CNN turi)
+    probability = Column(Float, nullable=True)
+
+    # ar čia train/test/user įrašas (papildoma informacija)
+    split = Column(String, nullable=True)  # "train", "test", "user"
+
+    # rezultatų saugojimo laikas
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    def __repr__(self):
+        return f"<ModelResult(model={self.model_type}, pred={self.predicted_class})>"

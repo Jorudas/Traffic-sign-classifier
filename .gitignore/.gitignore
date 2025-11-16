@@ -1,0 +1,49 @@
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual env
+env/
+venv/
+ENV/
+*.env
+
+# Model files (large)
+*.npy
+*.npz
+*.pkl
+*.hdf5
+*.keras
+*.best.h5
+*.tflite
+
+# Checkpoints
+checkpoints/
+logs/
+
+# Images and data
+data/
+datasets/
+*.ppm
+*.png
+*.jpg
+*.jpeg
+
+# Streamlit uploads
+uploaded/user_images/*
+
+# DB
+*.sqlite
+*.db-shm
+*.db-wal
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
